@@ -4,11 +4,21 @@ import logging
 import requests
 
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    Application,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+# =========================
+# CONFIG
+# =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
+# OpenRouter
 AI_URL = "https://openrouter.ai/api/v1/chat/completions"
 AI_MODEL = "openai/gpt-4o-mini"
 
@@ -16,6 +26,10 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+
+# =========================
+# BAD WORDS
+# =========================
 
 BAD_WORDS = [
     "احمق",
@@ -29,12 +43,17 @@ BAD_WORDS = [
     "shit",
 ]
 
+# =========================
+# ZAK PERSONALITY
+# =========================
+
 SYSTEM_PROMPT = """
 اسم تو «زک» است.
 
 تو یک ربات تلگرامی با شخصیت باحال، باهوش، شوخ و کمی شیطون هستی.
 
 قوانین:
+
 1. اگر کاربر سؤال درسی پرسید، دقیق و آموزشی جواب بده.
 2. اگر سؤال ریاضی، فیزیک، شیمی، زیست، زمین‌شناسی،
    فارسی، عربی، دینی یا زبان بود، مرحله‌به‌مرحله توضیح بده.
@@ -51,7 +70,12 @@ SYSTEM_PROMPT = """
 10. اگر کاربر گفت «زک»، منظورش تو هستی.
 """
 
+# =========================
+# AI REQUEST
+# =========================
+
 def ask_ai(user_message: str) -> str:
+
     headers = {
         "Authorization": f"Bearer {AI_API_KEY}",
         "Content-Type": "application/json",
@@ -60,8 +84,14 @@ def ask_ai(user_message: str) -> str:
     data = {
         "model": AI_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": user_message
+            }
         ],
         "temperature": 0.8,
         "max_tokens": 700,
@@ -74,60 +104,112 @@ def ask_ai(user_message: str) -> str:
             json=data,
             timeout=30
         )
+
         response.raise_for_status()
+
         result = response.json()
-        return result["choices"][0]["message"]["content"].strip()
+
+        return result["choices"][0]["message"]["content"]
 
     except Exception as e:
-        logging.error("AI Error: %s", e)
+        logging.error(f"AI Error: {e}")
         return "داداش مغزم یه لحظه هنگ کرد 😂 دوباره بپرس."
 
+
+# =========================
+# BAD WORD DETECTION
+# =========================
+
 def contains_bad_word(text: str) -> bool:
+
     text = text.lower()
-    return any(word.lower() in text for word in BAD_WORDS)
+
+    for word in BAD_WORDS:
+        if word.lower() in text:
+            return True
+
+    return False
+
+
+# =========================
+# MESSAGE HANDLER
+# =========================
 
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if not update.message or not update.message.text:
+
+    if not update.message:
         return
 
     text = update.message.text
 
-    # اگر فحش/توهین تشخیص داده شد، زک پاسخ طنز می‌دهد.
+    if not text:
+        return
+
+    # -------------------------
+    # Check bad words
+    # -------------------------
+
     if contains_bad_word(text):
+
         prompt = f"""
 کاربر در گروه این پیام را نوشته:
 
 "{text}"
 
 یک جواب کوتاه، خنده‌دار و دیس‌طور از طرف زک بده.
-جواب تهدیدآمیز یا خشونت‌آمیز نباشد.
-توهین سنگین نکن؛ بیشتر حالت کری‌خوانی بامزه داشته باشد.
+جواب نباید تهدیدآمیز یا خشونت‌آمیز باشد.
+خیلی هم توهین سنگین نکن؛ بیشتر حالت کری‌خوانی بامزه داشته باشد.
 """
-        await update.message.reply_text(ask_ai(prompt))
+
+        answer = ask_ai(prompt)
+
+        await update.message.reply_text(answer)
+
         return
 
-    # زک فقط وقتی صدا زده شود پاسخ می‌دهد.
+    # -------------------------
+    # Check "زک"
+    # -------------------------
+
     if "زک" in text.lower():
-        question = re.sub(r"زک", "", text, flags=re.IGNORECASE).strip()
+
+        # حذف اسم زک از متن
+        question = re.sub(
+            r"زک",
+            "",
+            text,
+            flags=re.IGNORECASE
+        ).strip()
 
         if not question:
             answer = "جان؟ 😎"
+
         else:
             answer = ask_ai(question)
 
         await update.message.reply_text(answer)
 
+        return
+
+
+# =========================
+# START
+# =========================
+
 def main():
+
     if not TELEGRAM_TOKEN:
-        raise ValueError("TELEGRAM_TOKEN تنظیم نشده است.")
+        raise ValueError("TELEGRAM_TOKEN تنظیم نشده!")
 
     if not AI_API_KEY:
-        raise ValueError("AI_API_KEY تنظیم نشده است.")
+        raise ValueError("AI_API_KEY تنظیم نشده!")
 
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = Application.builder().token(
+        TELEGRAM_TOKEN
+    ).build()
 
     app.add_handler(
         MessageHandler(
@@ -137,7 +219,9 @@ def main():
     )
 
     print("ZAK is running...")
+
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
